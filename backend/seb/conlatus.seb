@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>originatorVersion</key>
+    <string>SEB_Win_3.x</string>
+    <key>startURL</key>
+    <string>http://localhost:3000/interview</string>
+    <key>sendBrowserExamKey</key>
+    <true/>
+    <key>browserExamKey</key>
+    <string></string>
+    <key>browserViewMode</key>
+    <integer>0</integer>
+    <key>allowQuit</key>
+    <true/>
+    <key>ignoreExitKeys</key>
+    <false/>
+    <key>allowPreferencesWindow</key>
+    <true/>
+</dict>
+</plist>
+

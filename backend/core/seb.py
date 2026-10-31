@@ -27,47 +27,6 @@ def _public_url(request) -> str:
     return f"{proto}://{host}{path}" + (f"?{query}" if query else "")
 
 
-# TODO: REMOVE BEFORE PRODUCTION — temporary SEB failure diagnostics
-def _debug_seb_failure(
-    logger,
-    candidates: list[tuple[str, str]],
-    sent: str,
-    keys: list[str],
-    request,
-) -> None:
-    """
-    Logs detailed, non-sensitive diagnostics when a SEB config-key check fails.
-    Only partial values are logged — never full keys or full hashes.
-
-    Remove this function and its call site before deploying to production.
-    """
-    candidate_strs = [f"{label}: {url}" for label, url in candidates]
-    logger.warning("[SEB debug] candidate URLs: %s", candidate_strs)
-    logger.warning(
-        "[SEB debug] received configkeyhash: %s... (len=%d)",
-        sent[:8] if sent else "(empty)",
-        len(sent),
-    )
-
-    for i, key in enumerate(keys):
-        logger.warning(
-            "[SEB debug] key[%d]: prefix=%r len=%d",
-            i,
-            key[:4],
-            len(key),
-        )
-        for label, url in candidates:
-            computed = hashlib.sha256((url + key).encode()).hexdigest()
-            logger.warning(
-                "[SEB debug]   SHA256(%s + key[%d]) prefix: %s...",
-                label,
-                i,
-                computed[:8],
-            )
-
-    logger.warning("[SEB debug] Origin : %r", request.headers.get("origin", ""))
-
-
 class SEBMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         path = request.url.path
@@ -116,8 +75,4 @@ class SEBMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         log.warning("SEB check failed url=%s header_present=%s", req_url, bool(sent))
-
-        # TODO: REMOVE BEFORE PRODUCTION — temporary SEB failure diagnostics
-        _debug_seb_failure(log, candidates, sent, keys, request)
-
         return JSONResponse({"detail": "Safe Exam Browser required"}, status_code=403)

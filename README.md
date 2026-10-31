@@ -1,6 +1,6 @@
 # Conlatus AI Interview Platform
 
-A production-grade, full-stack AI technical interview platform featuring dynamic role curriculum generation, adaptive multi-turn audio/text conversational evaluation, deterministic rubric scoring, and an administrative telemetry command center.
+A production-grade, full-stack AI technical interview platform featuring dynamic role curriculum generation, adaptive multi-turn audio/text conversational evaluation, deterministic rubric scoring, and an administrative telemetry command center with Safe Exam Browser (SEB) anti-cheat gating.
 
 ---
 
@@ -8,22 +8,24 @@ A production-grade, full-stack AI technical interview platform featuring dynamic
 
 ```text
 ├── backend/       # FastAPI application, Groq LLM & Whisper STT, async SQLAlchemy 2.0, pytest suite
-├── frontend/      # Next.js App Router (Turbopack, Tailwind CSS, Specular components)
-├── docs/          # Architecture, API design, and feature specifications
+├── frontend/      # Next.js App Router (Turbopack, Tailwind CSS, Framer Motion, Specular UI)
+├── docs/          # Architecture, decisions, API design, and verification logs
 ├── READMEs/       # Feature registry (FEATURES.md)
-└── .dev/devlogs/  # Developer logs and technical release narratives
+└── seb/           # Safe Exam Browser configuration files (.seb)
 ```
 
 ---
 
-## Quickstart
+## Prerequisites
 
-### Prerequisites
-- **Node.js**: `v18+` and **npm**: `v9+` (or **pnpm**: `v8+`)
-- **Python**: `3.10+` with pip
-- **Groq API Key**: Set `GROQ_API_KEY` in `backend/.env` (obtainable at [console.groq.com](https://console.groq.com))
+- **Node.js**: `v18+` and **npm**: `v9+`
+- **Python**: `3.10+` with `pip`
+- **Groq API Key**: Obtainable at [console.groq.com](https://console.groq.com)
+- **Safe Exam Browser** (optional for dev): Version 3.x+ for Windows/macOS if testing anti-cheat enforcement.
 
 ---
+
+## Quickstart
 
 ### 1. Installation
 
@@ -31,79 +33,121 @@ Install Node.js dependencies from the repository root:
 ```bash
 npm install
 ```
-*(If you prefer pnpm, run `pnpm install`)*
 
 Install Python backend dependencies:
 ```bash
 pip install -r backend/requirements.txt
 ```
 
-Configure your environment variables:
-```bash
-# In backend/.env
+---
+
+### 2. Configure Environment Variables
+
+#### Backend (`backend/.env`)
+Create `backend/.env` (see `backend/.env.example`):
+```ini
 GROQ_API_KEY=gsk_your_groq_api_key_here
+DATABASE_URL=sqlite+aiosqlite:///conlatus.db
+JWT_SECRET_KEY=conlatus_super_secret_jwt_key_2026_change_in_production_32bytes
+
+# Safe Exam Browser Enforcement
+DEV_SKIP_SEB=false
+SEB_CONFIG_KEY=your_seb_config_key_hash_here
 ```
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `GROQ_API_KEY` | str | — | **Required.** Groq API key for LLM and Whisper STT. |
+| `DATABASE_URL` | str | `sqlite+aiosqlite:///conlatus.db` | SQLAlchemy async DB connection string. |
+| `JWT_SECRET_KEY` | str | default dev secret | Secret key used to sign session JWTs. |
+| `DEV_SKIP_SEB` | bool | `false` | If `true`, bypasses all Safe Exam Browser checks. A loud startup warning is logged. |
+| `SEB_CONFIG_KEY` | str | `""` | Comma-separated SEB Config Key hashes. Required when `DEV_SKIP_SEB=false`. |
+
+#### Frontend (`frontend/.env.local`)
+Create `frontend/.env.local` (see `frontend/.env.example`):
+```ini
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_SEB_CONFIG_HOST=localhost:8000
+```
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | str | `http://localhost:8000` | Backend REST API base URL. |
+| `NEXT_PUBLIC_SEB_CONFIG_HOST` | str | `localhost:8000` | Host (host:port) serving `/seb/config.seb` for deep-link generation. |
 
 ---
 
-### 2. Start the Backend (FastAPI on Port 8000)
+### 3. Canonical Start Commands
 
+#### Start the Backend (Port 8000)
 > **Always start the backend from the `backend/` directory:**
-
 ```bash
 cd backend
 python -m uvicorn main:app --port 8000 --reload
 ```
+- Startup logs confirm whether SEB check is `ENABLED` or `DISABLED (DEV_SKIP_SEB=true)` and whether `SEB_CONFIG_KEY` is configured (boolean flag only, keys are never logged).
+- `config.py` resolves `backend/.env` using an absolute path relative to `__file__`, guaranteeing the correct environment is loaded regardless of current working directory.
 
-> **Note:** `config.py` resolves `backend/.env` using an absolute path (relative to `__file__`), so it is CWD-independent. However running from `backend/` remains the canonical approach.
-
-- **API Health Check:** [http://localhost:8000/](http://localhost:8000/)
-- **Interactive OpenAPI Documentation:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Developer Testing Dashboard:** [http://localhost:8000/dev/dashboard](http://localhost:8000/dev/dashboard)
-
-#### Environment Variables (`backend/.env`)
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `GROQ_API_KEY` | str | � | **Required.** Groq API key from [console.groq.com](https://console.groq.com) |
-| `DATABASE_URL` | str | `sqlite+aiosqlite:///conlatus.db` | SQLAlchemy async DB URL |
-| `JWT_SECRET_KEY` | str | (insecure default) | Change in production |
-| `DEV_SKIP_SEB` | bool | `false` | Set `true` in dev to bypass Safe Exam Browser enforcement. A loud WARNING is logged on startup when enabled. |
-| `SEB_CONFIG_KEY` | str | `""` | Comma-separated SEB config key hashes. Required when `DEV_SKIP_SEB=false`. |
-
----
-
-### 3. Start the Frontend (Next.js on Port 3000)
-
-From the repository root:
+#### Start the Frontend (Port 3000)
 ```bash
-npm run frontend
+cd frontend
+npm run dev
 ```
-*(Or with pnpm: `pnpm frontend`)*
-
-- **Candidate Room:** [http://localhost:3000/](http://localhost:3000/)
-- **Admin Dashboard Overview:** [http://localhost:3000/admin](http://localhost:3000/admin)
-- **Candidate Pipeline Tracker:** [http://localhost:3000/admin/candidates](http://localhost:3000/admin/candidates)
-- **Model Calibration & Settings:** [http://localhost:3000/admin/settings](http://localhost:3000/admin/settings)
-- **Dynamic Interview Builder:** [http://localhost:3000/admin/setup](http://localhost:3000/admin/setup)
 
 ---
 
-## Testing & Quality Assurance
+## Application Routes
 
-- **Run Modular Test Suite (55 automated tests):**
-  ```bash
-  npm run test:backend
-  ```
-  *(Or directly: `python -m pytest backend/tests -v`)*
+### Candidate Interface (Frontend: Port 3000)
+- **Landing Page & Quick Access:** `http://localhost:3000/`
+- **Direct Access Code Entrance:** `http://localhost:3000/interview/[code]`
+  - If opened outside SEB: Displays the branded **Safe Exam Browser Required** gate with download buttons and the deep-link launcher (`seb://localhost:8000/seb/config.seb`).
+  - If opened inside SEB: Directly enters the interview staging room.
+- **Active Interview Room:** `http://localhost:3000/interview` (interactive audio/text dialogue).
 
-- **Build Frontend Production Bundle:**
-  ```bash
-  npm run build:frontend
-  ```
-  *(Or with pnpm: `pnpm build:frontend`)*
+### Admin & Recruiter Suite (Frontend: Port 3000)
+- **Admin Login:** `http://localhost:3000/admin/login`
+- **Dashboard Overview:** `http://localhost:3000/admin`
+- **Candidate Pipeline:** `http://localhost:3000/admin/candidates`
+- **Interview Template Setup:** `http://localhost:3000/admin/setup`
+- **Settings & Model Calibrations:** `http://localhost:3000/admin/settings`
 
-- **Lint Frontend:**
-  ```bash
-  npm run lint:frontend
-  ```
+### Backend Endpoints (Port 8000)
+- **Health Check:** `GET http://localhost:8000/`
+- **SEB Config File:** `GET / HEAD http://localhost:8000/seb/config.seb` (serves `conlatus.seb` with `application/octet-stream`)
+- **API Documentation (Swagger):** `http://localhost:8000/docs`
+- **Developer Test Dashboard:** `http://localhost:8000/dev/dashboard`
+
+---
+
+## Safe Exam Browser (SEB) Architecture
+
+1. **Gating Model**: Endpoints under `/interview/` (such as `POST /interview/join`, `POST /interview/start`, `POST /interview/{sid}/audio-message`) require valid SEB verification when `DEV_SKIP_SEB=false`.
+2. **Public Exceptions**: `/interview/details/{code}` (pre-join check), `/seb/config.seb` (config download), and all root routes are public.
+3. **Dual Candidate Matching**:
+   - Because fetch calls from the candidate page can be signed by SEB using either the request URL or the calling page's URL, the backend computes hashes against two candidate URLs:
+     - Candidate (a): The API request URL (e.g. `http://localhost:8000/interview/start`).
+     - Candidate (b): The calling page URL from the `Referer` header (e.g. `http://localhost:3000/interview/demo`), with any `#fragment` removed.
+   - The frontend sets `referrerPolicy: "unsafe-url"` across API calls so the full page URL is transmitted in `Referer`.
+   - Matching uses constant-time comparison (`hmac.compare_digest`).
+4. **CORS Integration**: `CORSMiddleware` is configured outermost so preflight `OPTIONS` requests pass through untouched and 403 Forbidden responses still include valid `Access-Control-Allow-Origin` headers.
+
+---
+
+## How to Test
+
+### 1. Verification with curl (Outside SEB)
+```bash
+# Protected endpoint must return 403 Forbidden when DEV_SKIP_SEB=false:
+curl -s -o - -w "\nHTTP %{http_code}\n" http://localhost:8000/interview/start
+
+# Public endpoints return 200:
+curl -s -o - -w "\nHTTP %{http_code}\n" http://localhost:8000/interview/details/demo
+curl -s -I http://localhost:8000/seb/config.seb
+```
+
+### 2. End-to-End Test Inside SEB
+1. Launch `conlatus.seb` or open `seb://localhost:8000/seb/config.seb` in your browser.
+2. SEB starts with the configured start URL (`http://localhost:3000/interview/demo`).
+3. Complete the microphone test and join the interview.
+4. Speak your answer; Whisper transcribes the response and the interview progresses through the multi-turn evaluation loop.

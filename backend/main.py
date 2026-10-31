@@ -168,7 +168,7 @@ def dev_dashboard():
         return f.read()
 
 
-@app.get("/seb/config.seb")
+@app.api_route("/seb/config.seb", methods=["GET", "HEAD"])
 def get_seb_config():
     """
     Serves ./seb/conlatus.seb with Content-Type application/octet-stream

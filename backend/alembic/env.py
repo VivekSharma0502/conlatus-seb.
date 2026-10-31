@@ -78,5 +78,3 @@ if context.is_offline_mode():
 else:
     run_migrations_online()
     
-SEB_CONFIG_KEY=124ac7c71014de65543f2317c1c9bc51e169f5216be53d3e431ff3ebe8e8cf3f
-DEV_SKIP_SEB=true
