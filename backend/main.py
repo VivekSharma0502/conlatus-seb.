@@ -1,9 +1,10 @@
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException, status
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -25,6 +26,7 @@ from core.llm import (
     LLMRateLimitError,
 )
 from core.database import init_db
+from core.seb import SEBMiddleware
 from routers.interview import router as interview_router
 from routers.admin import router as admin_router
 from routers.auth import router as auth_router, limiter
@@ -35,7 +37,19 @@ async def lifespan(app: FastAPI):
     # 0. Initialize database tables if they do not exist
     await init_db()
 
-    # 1. Startup rubric config load validation
+    # 1. Log SEB enforcement status on startup (key value never logged)
+    _seb_log = logging.getLogger("seb")
+    _key_set = bool(settings.SEB_CONFIG_KEY and settings.SEB_CONFIG_KEY.strip())
+    if settings.DEV_SKIP_SEB:
+        _seb_log.warning(
+            "⚠️  SEB check DISABLED (DEV_SKIP_SEB=true) — Safe Exam Browser is NOT enforced. "
+            "SEB_CONFIG_KEY set: %s",
+            _key_set,
+        )
+    else:
+        _seb_log.info("SEB check ENABLED | SEB_CONFIG_KEY set: %s", _key_set)
+
+    # 2. Startup rubric config load validation
     rubric_config.validate_rubric_config()
 
     # 2. Loud startup validation for GROQ_API_KEY unless running in test mode
@@ -63,7 +77,10 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS middleware configuration
+# Safe Exam Browser (SEB) verification middleware
+app.add_middleware(SEBMiddleware)
+
+# CORS middleware configuration (added after SEBMiddleware so it is outermost and 403s still carry CORS headers)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -134,6 +151,7 @@ app.include_router(admin_router)
 app.include_router(admin_questions_router)
 app.include_router(reports_router)
 
+
 @app.get("/")
 def root():
     return {
@@ -148,6 +166,38 @@ def dev_dashboard():
     dashboard_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
     with open(dashboard_path, "r", encoding="utf-8") as f:
         return f.read()
+
+
+@app.get("/seb/config.seb")
+def get_seb_config():
+    """
+    Serves ./seb/conlatus.seb with Content-Type application/octet-stream
+    and Content-Disposition attachment.
+    """
+    search_paths = [
+        os.path.abspath(os.path.join(os.getcwd(), "seb", "conlatus.seb")),
+        os.path.abspath(os.path.join(_current_dir, "seb", "conlatus.seb")),
+        os.path.abspath(os.path.join(os.path.dirname(_current_dir), "seb", "conlatus.seb")),
+    ]
+
+    target_path = None
+    for p in search_paths:
+        if os.path.isfile(p):
+            target_path = p
+            break
+
+    if not target_path or not os.path.exists(target_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="SEB configuration file './seb/conlatus.seb' not found on server.",
+        )
+
+    return FileResponse(
+        path=target_path,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="conlatus.seb"'},
+        filename="conlatus.seb",
+    )
 
 
 if __name__ == "__main__":

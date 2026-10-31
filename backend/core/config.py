@@ -1,17 +1,25 @@
 import os
+from pathlib import Path
 from typing import Dict, Any, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+# Absolute path to backend/.env — correct regardless of CWD at startup
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_ENV_FILE = str(_BACKEND_DIR / ".env")
 
 
 class Settings(BaseSettings):
     """
     Application Settings powered by Pydantic Settings.
     Reads environment variables from system environment and backend/.env.
+    The .env path is resolved absolutely from this file's location so it
+    is CWD-independent (safe whether uvicorn is started from the repo root
+    or from backend/).
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -50,6 +58,15 @@ class Settings(BaseSettings):
         description="Allowed CORS origins",
     )
 
+    # Safe Exam Browser (SEB) Configuration
+    SEB_CONFIG_KEY: str = Field(
+        default="",
+        description="Comma-separated Safe Exam Browser Config Keys for request verification",
+    )
+    DEV_SKIP_SEB: bool = Field(
+        default=False,
+        description="If True, bypasses Safe Exam Browser checks in development",
+    )
 
     @property
     def is_sqlite(self) -> bool:
@@ -68,6 +85,7 @@ class Settings(BaseSettings):
         Normalizes DATABASE_URL for SQLAlchemy 2.0 Async Engine.
         Converts sqlite:// -> sqlite+aiosqlite://
         Converts postgresql:// or postgres:// -> postgresql+asyncpg://
+        Converts postgresql:// and not postgresql+asyncpg:// -> postgresql+asyncpg://
         """
         url = self.DATABASE_URL.strip()
         if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
@@ -84,6 +102,7 @@ class Settings(BaseSettings):
         Normalizes DATABASE_URL for synchronous contexts like Alembic migrations.
         Converts sqlite+aiosqlite:// -> sqlite://
         Converts postgresql+asyncpg:// -> postgresql://
+        Converts postgresql:// or postgres:// -> postgresql://
         """
         url = self.DATABASE_URL.strip()
         if url.startswith("sqlite+aiosqlite://"):
