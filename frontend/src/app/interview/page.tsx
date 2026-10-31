@@ -14,13 +14,16 @@ import {
   CircleNotch,
   WarningCircle,
   CheckCircle,
-  ArrowLeft,
+  Timer,
+  ProhibitInset,
 } from "@phosphor-icons/react";
 import SpecularContainer from "@/components/SpecularContainer";
-import SpecularButton from "@/components/SpecularButton";
 import InterviewRoom from "@/components/interview/InterviewRoom";
+import brand from "@/lib/brand";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface InterviewDetails {
   interview_id: string;
@@ -40,18 +43,80 @@ interface ActiveSession {
   token: string;
 }
 
-export default function CandidateInterviewPage({ initialCode: propCode }: { initialCode?: string } = {}) {
+/** Classify a backend error string into a user-friendly message + severity. */
+function classifyCodeError(detail: string): {
+  message: string;
+  kind: "invalid" | "expired" | "used" | "generic";
+} {
+  const d = detail.toLowerCase();
+  if (d.includes("expir")) {
+    return {
+      message:
+        "This interview link has expired. Please contact your recruiter for a new link.",
+      kind: "expired",
+    };
+  }
+  if (
+    d.includes("already") ||
+    d.includes("complet") ||
+    d.includes("used") ||
+    d.includes("started")
+  ) {
+    return {
+      message:
+        "This interview has already been completed. Each link is single-use.",
+      kind: "used",
+    };
+  }
+  if (
+    d.includes("not found") ||
+    d.includes("invalid") ||
+    d.includes("no interview")
+  ) {
+    return {
+      message: "Invalid access code. Please check the link you were sent.",
+      kind: "invalid",
+    };
+  }
+  return { message: detail, kind: "generic" };
+}
+
+// ─── Error badge icons ────────────────────────────────────────────────────────
+
+function CodeErrorIcon({ kind }: { kind: "invalid" | "expired" | "used" | "generic" }) {
+  if (kind === "expired") return <Timer size={12} weight="fill" />;
+  if (kind === "used") return <ProhibitInset size={12} weight="fill" />;
+  return <WarningCircle size={12} weight="fill" />;
+}
+
+// ─── Root export ─────────────────────────────────────────────────────────────
+
+export default function CandidateInterviewPage({
+  initialCode: propCode,
+}: { initialCode?: string } = {}) {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center text-white bg-[#050505]">Loading Interview Portal...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center text-white bg-[#050505]">
+          <CircleNotch size={24} className="animate-spin text-violet-400" />
+        </div>
+      }
+    >
       <CandidatePortalContent propCode={propCode} />
     </Suspense>
   );
 }
 
+// ─── Main content ─────────────────────────────────────────────────────────────
+
 function CandidatePortalContent({ propCode }: { propCode?: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const initialCode = propCode || searchParams.get("code") || searchParams.get("id") || "";
+  const initialCode =
+    propCode ||
+    searchParams.get("code") ||
+    searchParams.get("id") ||
+    "";
 
   const [code, setCode] = useState(initialCode);
   const [candidateName, setCandidateName] = useState("");
@@ -59,13 +124,16 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
 
   const [details, setDetails] = useState<InterviewDetails | null>(null);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
-  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<{
+    message: string;
+    kind: "invalid" | "expired" | "used" | "generic";
+  } | null>(null);
 
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
 
-  // Auto-verify when code is provided or typed
+  // ── Auto-verify code with debounce ──────────────────────────────────────────
   useEffect(() => {
     if (!code || code.trim().length < 3) {
       setDetails(null);
@@ -77,16 +145,23 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
       setIsVerifyingCode(true);
       setCodeError(null);
       try {
-        const res = await fetch(`${API_BASE_URL}/interview/details/${encodeURIComponent(code.trim())}`);
+        const res = await fetch(
+          `${API_BASE_URL}/interview/details/${encodeURIComponent(code.trim())}`,
+          {
+            referrerPolicy: "unsafe-url",
+          }
+        );
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || "Interview access code is invalid or expired.");
+          const detail: string =
+            err.detail || "Interview access code is invalid or expired.";
+          throw new Error(detail);
         }
         const data = await res.json();
         setDetails(data);
       } catch (err: any) {
         setDetails(null);
-        setCodeError(err.message || "Invalid interview code");
+        setCodeError(classifyCodeError(err.message || "Invalid interview code"));
       } finally {
         setIsVerifyingCode(false);
       }
@@ -95,6 +170,7 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
     return () => clearTimeout(timer);
   }, [code]);
 
+  // ── Join handler ─────────────────────────────────────────────────────────────
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code.trim() || !candidateName.trim() || !candidateEmail.trim()) {
@@ -109,6 +185,7 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
       const res = await fetch(`${API_BASE_URL}/interview/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        referrerPolicy: "unsafe-url",
         body: JSON.stringify({
           interview_code: code.trim(),
           candidate_name: candidateName.trim(),
@@ -118,7 +195,9 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || "Failed to join interview. Please check your credentials.");
+        throw new Error(
+          err.detail || "Failed to join interview. Please check your credentials."
+        );
       }
 
       const data = await res.json();
@@ -141,7 +220,7 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
     }
   };
 
-  // If in active session, render the full interview room
+  // ── Active session → full interview room ──────────────────────────────────
   if (activeSession) {
     return (
       <InterviewRoom
@@ -157,45 +236,42 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
     );
   }
 
+  // ── Portal form ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen w-full bg-[#050505] text-white flex items-center justify-center p-4 sm:p-6 relative overflow-hidden">
-      {/* Dynamic Background Glows */}
+      {/* Background glows */}
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-violet-600/15 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-xl relative z-10 flex flex-col gap-6">
-        {/* Return to Home link */}
-        <button
-          onClick={() => router.push("/")}
-          className="self-start flex items-center gap-2 text-xs font-medium text-white/50 hover:text-white transition-colors"
-        >
-          <ArrowLeft size={14} /> Back to Home
-        </button>
-
         <SpecularContainer
           radius={28}
           tintOpacity={0.03}
           className="w-full border border-white/10 glass-panel shadow-2xl"
           contentClassName="p-8 sm:p-10 flex flex-col"
         >
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-4">
+          {/* ── Brand header ── */}
+          <div className="flex items-center gap-3 mb-6">
             <div className="w-11 h-11 rounded-2xl glass-panel flex items-center justify-center border border-white/10 bg-white/5 p-2 shrink-0">
-              <img src="/favicon.ico" alt="Conlatus" className="w-full h-full object-contain" />
+              <img
+                src={brand.logoSrc}
+                alt={brand.name}
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-white">
                 Candidate Interview Portal
               </h1>
-              <p className="text-xs text-white/50">
-                Enter your access code and details to begin your AI interview.
+              <p className="text-xs text-white/45">
+                {brand.name} · Enter your access code to begin.
               </p>
             </div>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleJoin} className="flex flex-col gap-5 mt-4">
-            {/* Access Code Input */}
+          {/* ── Form ── */}
+          <form onSubmit={handleJoin} className="flex flex-col gap-5">
+            {/* Access code */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-white/70 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
@@ -204,7 +280,8 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
                 </span>
                 {isVerifyingCode && (
                   <span className="text-[10px] text-white/40 flex items-center gap-1">
-                    <CircleNotch size={10} className="animate-spin" /> Verifying...
+                    <CircleNotch size={10} className="animate-spin" />
+                    Verifying…
                   </span>
                 )}
               </label>
@@ -230,14 +307,25 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
                 )}
               </div>
 
-              {codeError && (
-                <p className="text-[11px] text-red-400 flex items-center gap-1 mt-0.5">
-                  <WarningCircle size={12} weight="fill" /> {codeError}
-                </p>
-              )}
+              {/* Classified error message */}
+              <AnimatePresence>
+                {codeError && (
+                  <motion.p
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="text-[11px] text-red-400 flex items-start gap-1 mt-0.5"
+                  >
+                    <span className="mt-[1px] shrink-0">
+                      <CodeErrorIcon kind={codeError.kind} />
+                    </span>
+                    {codeError.message}
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Validated Details Banner */}
+            {/* Validated details banner */}
             <AnimatePresence>
               {details && (
                 <motion.div
@@ -253,17 +341,20 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-white/60 bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
                       <Clock size={14} className="text-violet-400" />
-                      <span>{details.duration_minutes} Mins</span>
+                      <span>{details.duration_minutes} mins</span>
                     </div>
                   </div>
                   <p className="text-xs text-white/80">
-                    Position: <strong className="text-white font-medium">{details.role_title}</strong>
+                    Position:{" "}
+                    <strong className="text-white font-medium">
+                      {details.role_title}
+                    </strong>
                   </p>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Candidate Name */}
+            {/* Candidate name */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-white/70 flex items-center gap-1.5">
                 <User size={14} className="text-white/40" />
@@ -274,12 +365,12 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
                 value={candidateName}
                 onChange={(e) => setCandidateName(e.target.value)}
                 placeholder="e.g. Jane Doe"
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30"
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-all"
                 required
               />
             </div>
 
-            {/* Candidate Email */}
+            {/* Candidate email */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-white/70 flex items-center gap-1.5">
                 <Envelope size={14} className="text-white/40" />
@@ -290,12 +381,12 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
                 value={candidateEmail}
                 onChange={(e) => setCandidateEmail(e.target.value)}
                 placeholder="e.g. jane@example.com"
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30"
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 transition-all"
                 required
               />
             </div>
 
-            {/* Error message */}
+            {/* Join error */}
             {joinError && (
               <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-center gap-2">
                 <WarningCircle size={16} weight="fill" className="shrink-0" />
@@ -303,23 +394,26 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
               </div>
             )}
 
-            {/* Device Preparation Tip */}
+            {/* Pre-flight tip */}
             <div className="p-3.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white/60 flex items-start gap-2.5">
               <Sparkle size={16} className="text-violet-400 shrink-0 mt-0.5" />
               <span>
-                Please ensure you are in a quiet room with your camera and microphone ready. The interview uses real-time voice speech analysis.
+                Please ensure you are in a quiet room with your camera and
+                microphone ready. The interview uses real-time voice speech
+                analysis.
               </span>
             </div>
 
-            {/* Join Button */}
+            {/* Submit */}
             <button
               type="submit"
-              disabled={isJoining}
-              className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-sm font-semibold text-white transition-all shadow-lg shadow-violet-600/25 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+              disabled={isJoining || !!codeError || !details}
+              className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-sm font-semibold text-white transition-all shadow-lg shadow-violet-600/25 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
             >
               {isJoining ? (
                 <span className="flex items-center gap-2">
-                  <CircleNotch size={16} className="animate-spin" /> Verifying & Connecting...
+                  <CircleNotch size={16} className="animate-spin" />
+                  Verifying &amp; Connecting…
                 </span>
               ) : (
                 <span className="flex items-center gap-2 font-semibold">
@@ -329,6 +423,11 @@ function CandidatePortalContent({ propCode }: { propCode?: string }) {
             </button>
           </form>
         </SpecularContainer>
+
+        {/* Footer */}
+        <p className="text-center text-[11px] text-white/20">
+          {brand.name} · Secure AI Interview Platform
+        </p>
       </div>
     </div>
   );

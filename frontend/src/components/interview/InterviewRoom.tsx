@@ -121,6 +121,7 @@ export default function InterviewRoom({
         const res = await fetch(`${API_BASE_URL}/interview/start`, {
           method: "POST",
           headers,
+          referrerPolicy: "unsafe-url",
           body: JSON.stringify({
             interview_id: interviewId,
             candidate_id: candidateEmail || "candidate-web",
@@ -226,6 +227,7 @@ export default function InterviewRoom({
           const res = await fetch(`${API_BASE_URL}/interview/${sessionId}/audio-message`, {
             method: "POST",
             headers,
+            referrerPolicy: "unsafe-url",
             body: formData,
           });
 
@@ -307,6 +309,7 @@ export default function InterviewRoom({
       const res = await fetch(`${API_BASE_URL}/interview/${sessionId}/message`, {
         method: "POST",
         headers,
+        referrerPolicy: "unsafe-url",
         body: JSON.stringify({ message: messageText }),
       });
 

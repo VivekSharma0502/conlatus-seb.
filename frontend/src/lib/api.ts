@@ -129,6 +129,7 @@ export function handleAuthError(res: Response) {
 export async function fetchAdminOverview(): Promise<AdminOverviewResponse> {
   const res = await fetch(`${API_BASE_URL}/admin/overview`, {
     headers: getAuthHeaders(),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     handleAuthError(res);
@@ -148,6 +149,7 @@ export async function fetchCandidates(
   const url = `${API_BASE_URL}/admin/candidates?${params.toString()}`;
   const res = await fetch(url, {
     headers: getAuthHeaders(),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     handleAuthError(res);
@@ -161,6 +163,7 @@ export async function fetchCandidateDetail(
 ): Promise<CandidateDetailResponse> {
   const res = await fetch(`${API_BASE_URL}/admin/candidates/${id}`, {
     headers: getAuthHeaders(),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     handleAuthError(res);
@@ -178,6 +181,7 @@ export async function submitCandidateDecision(
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ decision, notes }),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     handleAuthError(res);
@@ -192,6 +196,7 @@ export async function retriggerCandidateReport(
   const res = await fetch(`${API_BASE_URL}/admin/candidates/${id}/retrigger`, {
     method: "POST",
     headers: getAuthHeaders(),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     handleAuthError(res);
@@ -203,6 +208,7 @@ export async function retriggerCandidateReport(
 export async function fetchAdminSettings(): Promise<AdminSettingsPayload> {
   const res = await fetch(`${API_BASE_URL}/admin/settings`, {
     headers: getAuthHeaders(),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     handleAuthError(res);
@@ -218,6 +224,7 @@ export async function updateAdminSettings(
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
+    referrerPolicy: "unsafe-url",
   });
   if (!res.ok) {
     throw new Error(`Failed to update settings: ${res.statusText}`);
