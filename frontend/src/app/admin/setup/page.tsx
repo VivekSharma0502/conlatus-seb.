@@ -12,11 +12,13 @@ export default function SetupInterviewPage() {
   const [roleTitle, setRoleTitle] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [duration, setDuration] = useState("15");
+  const [candidateEmail, setCandidateEmail] = useState("");
+  const [candidateName, setCandidateName] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [rubricTags, setRubricTags] = useState<string[]>(["HTML", "CSS", "Variables", "Basic Programming"]);
   const [customQuestions, setCustomQuestions] = useState<string[]>([]);
 
-  // New State for Autonomous Generation
+  // State for Autonomous Generation
   const [mode, setMode] = useState<"manual" | "autonomous">("manual");
   const [seniorityLevel, setSeniorityLevel] = useState("Junior");
   const [generatedQuestions, setGeneratedQuestions] = useState<any[]>([]);
@@ -26,6 +28,7 @@ export default function SetupInterviewPage() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [interviewId, setInterviewId] = useState<string | null>(null);
   const [copiedType, setCopiedType] = useState<string | null>(null);
 
   const getAuthToken = () => {
@@ -83,6 +86,8 @@ export default function SetupInterviewPage() {
           company_name: companyName || "Conlatus",
           duration_minutes: parseInt(duration) || 15,
           job_description: jobDescription,
+          candidate_email: candidateEmail.trim() || undefined,
+          candidate_name: candidateName.trim() || undefined,
           rubric_tags: rubricTags,
           custom_questions: customQuestions,
           generated_questions: mode === "autonomous" && generatedQuestions.length > 0 ? generatedQuestions : null,
@@ -94,9 +99,12 @@ export default function SetupInterviewPage() {
       }
 
       const data = await response.json();
-      const code = data.interview_id;
-      const link = `${window.location.origin}/interview/${code}`;
-      setGeneratedCode(code);
+      const accessCode = data.access_code || data.interview_id;
+      const id = data.interview_id;
+      // Direct link points to /interview/[code] where code is the accessCode or id
+      const link = `${window.location.origin}/interview/${accessCode}`;
+      setGeneratedCode(accessCode);
+      setInterviewId(id);
       setGeneratedLink(link);
     } catch (error) {
       console.error(error);
@@ -108,18 +116,19 @@ export default function SetupInterviewPage() {
 
   const getInvitationText = () => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `Hi Candidate,
+    return `Hi ${candidateName || "Candidate"},
 
 You are invited to an AI Technical Interview for the position of ${roleTitle || "Junior Web Developer"} at ${companyName || "Conlatus"}.
 
 ⏱ Duration: ${duration || "15"} Minutes
-🔑 Access Code: ${generatedCode}
+🔑 Access Code: ${generatedCode} (Single-use · Valid for 30 minutes)
 🔗 Direct Link: ${generatedLink}
 
 To begin your interview:
 1. Click the direct link above, or go to ${origin}/interview and enter your access code.
-2. Ensure your camera and microphone are connected and permitted in your browser.
-3. Be ready to answer questions and discuss technical trade-offs.
+2. Ensure you have Safe Exam Browser installed if required, and close other background apps.
+3. Ensure your camera and microphone are connected and permitted in your browser.
+4. Be ready to answer questions and discuss technical trade-offs.
 
 Best of luck!
 — ${companyName || "Conlatus"} Hiring Team`;
@@ -146,7 +155,7 @@ Best of luck!
             Setup New Interview
           </h1>
           <p className="text-sm text-white/50 mt-1">
-            Configure the AI persona, job description, and evaluation rubric.
+            Configure the AI persona, job description, candidate, and evaluation rubric.
           </p>
         </div>
         <button
@@ -154,7 +163,7 @@ Best of luck!
           disabled={isGenerating}
           className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-xs font-semibold text-white transition-all shadow-lg shadow-violet-600/20 active:scale-[0.98] whitespace-nowrap shrink-0 disabled:opacity-50 cursor-pointer"
         >
-          {isGenerating ? "Generating..." : "Generate Link"}
+          {isGenerating ? "Generating..." : "Generate Link & Code"}
         </button>
       </header>
 
@@ -172,37 +181,54 @@ Best of luck!
                 Interview Created & Ready to Share!
               </p>
               <p className="text-xs text-white/60 mt-0.5">
-                Share this direct URL or candidate code via WhatsApp, Email, or Slack.
+                Single-use access code expires in 30 minutes if unused.
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-white/50">Code:</span>
-              <code className="text-xs bg-black/60 px-2.5 py-1 rounded text-violet-300 font-mono border border-white/10">
-                {generatedCode}
-              </code>
-              <button
-                onClick={() => handleCopy(generatedCode || "", "code")}
-                className="text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2 ml-1"
-              >
-                {copiedType === "code" ? "Copied!" : "Copy Code"}
-              </button>
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30 font-medium">
+                Expires in 30m
+              </span>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30 font-medium">
+                Single-use
+              </span>
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-black/30 p-3 rounded-xl border border-white/5">
-            <div className="flex items-center gap-2 overflow-hidden flex-1">
-              <span className="text-xs text-white/40 font-mono">Link:</span>
-              <span className="text-xs text-violet-300 font-mono truncate select-all">
+          {/* Prominent Link & Access Code Display Side-by-Side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Direct Link */}
+            <div className="flex flex-col justify-between gap-2 bg-black/40 p-3.5 rounded-xl border border-white/10">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/50 font-medium">Direct Link</span>
+                <button
+                  onClick={() => handleCopy(generatedLink, "link")}
+                  className="px-3 py-1 rounded-lg bg-violet-600/30 border border-violet-500/40 text-xs font-medium text-violet-200 hover:bg-violet-600/50 transition-colors cursor-pointer"
+                >
+                  {copiedType === "link" ? "Copied!" : "Copy Link"}
+                </button>
+              </div>
+              <div className="text-xs text-violet-300 font-mono truncate select-all bg-black/30 p-2 rounded border border-white/5">
                 {generatedLink}
-              </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => handleCopy(generatedLink, "link")}
-                className="px-4 py-2 rounded-lg bg-violet-600/30 border border-violet-500/40 text-xs font-medium text-violet-200 hover:bg-violet-600/40 transition-colors whitespace-nowrap cursor-pointer"
-              >
-                {copiedType === "link" ? "Copied Link!" : "Copy Link"}
-              </button>
+
+            {/* Access Code */}
+            <div className="flex flex-col justify-between gap-2 bg-black/40 p-3.5 rounded-xl border border-violet-500/25">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/50 font-medium flex items-center gap-1.5">
+                  <span>Access Code</span>
+                </span>
+                <button
+                  onClick={() => handleCopy(generatedCode || "", "code")}
+                  className="px-3 py-1 rounded-lg bg-violet-600/30 border border-violet-500/40 text-xs font-medium text-violet-200 hover:bg-violet-600/50 transition-colors cursor-pointer"
+                >
+                  {copiedType === "code" ? "Copied!" : "Copy Code"}
+                </button>
+              </div>
+              <div className="text-sm font-bold tracking-widest text-violet-300 font-mono select-all bg-black/30 p-2 rounded border border-white/5 flex items-center justify-between">
+                <span>{generatedCode}</span>
+                <span className="text-[11px] font-normal text-white/40 tracking-normal">Enter at /interview</span>
+              </div>
             </div>
           </div>
 
@@ -256,7 +282,7 @@ Best of luck!
         <div className="lg:col-span-2 flex flex-col gap-6">
           <SpecularContainer radius={24} tintOpacity={0.01} className="glass-panel" contentClassName="p-6 md:p-8 flex flex-col gap-6">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-white/60 mb-2">
-              Role Details
+              Role & Candidate Details
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <AdminInput
@@ -270,6 +296,22 @@ Best of luck!
                 placeholder="e.g. Acme Corp"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <AdminInput
+                label="Candidate Email (Optional)"
+                placeholder="e.g. candidate@example.com"
+                type="email"
+                value={candidateEmail}
+                onChange={(e) => setCandidateEmail(e.target.value)}
+              />
+              <AdminInput
+                label="Candidate Name (Optional)"
+                placeholder="e.g. Jane Doe"
+                value={candidateName}
+                onChange={(e) => setCandidateName(e.target.value)}
               />
             </div>
 

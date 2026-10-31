@@ -1,7 +1,7 @@
 import uuid
 import logging
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from api.deps import get_current_admin, get_db
 from models.schemas import CreateInterviewRequest, CreateInterviewResponse, InterviewConfig
 from core.interview_store import interview_store
+from core.security import generate_access_code
 from models.interview import Interview
 from models.role import Role
 from models.company import Company
@@ -102,6 +103,20 @@ async def create_interview(
             })
 
     interview_uuid = uuid.uuid4()
+    # Generate random access code (secrets, 8+ chars, independent of UUID)
+    access_code = generate_access_code(10)
+    access_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    candidate_email = (
+        request.candidate_email.strip()
+        if request.candidate_email and request.candidate_email.strip()
+        else f"candidate-{str(interview_uuid)[:8]}@applicant.com"
+    )
+    candidate_name = (
+        request.candidate_name.strip()
+        if request.candidate_name and request.candidate_name.strip()
+        else "Pending Candidate"
+    )
+
     config = InterviewConfig(
         id=str(interview_uuid),
         role_title=role,
@@ -111,7 +126,9 @@ async def create_interview(
         questions=questions,
         rubric_criteria=rubric_criteria,
         max_followups=2,
-        verdict_threshold=3.0
+        verdict_threshold=3.0,
+        access_code=access_code,
+        candidate_email=candidate_email,
     )
 
     interview_id = interview_store.create_interview(config)
@@ -142,14 +159,17 @@ async def create_interview(
             db.add(db_role)
             await db.flush()
 
-        # Create Interview record
+        # Create Interview record with access_code, single-use, 30 min expiry
         db_interview = Interview(
             id=interview_uuid,
             role_id=db_role.id,
             user_id=current_admin.id if current_admin else None,
-            candidate_name="Pending Candidate",
-            candidate_email=f"candidate-{str(interview_uuid)[:8]}@applicant.com",
+            candidate_name=candidate_name,
+            candidate_email=candidate_email,
             token=f"tok_{str(interview_uuid).replace('-', '')[:16]}",
+            access_code=access_code,
+            access_code_expires_at=access_code_expires_at,
+            access_code_used=False,
             status="created",
         )
         db.add(db_interview)
@@ -157,7 +177,10 @@ async def create_interview(
     except Exception as e:
         logger.warning(f"Could not persist interview to DB: {e}")
     
-    return CreateInterviewResponse(interview_id=interview_id)
+    return CreateInterviewResponse(
+        interview_id=interview_id,
+        access_code=access_code,
+    )
 
 
 @router.get("/overview", response_model=AdminOverviewResponse)

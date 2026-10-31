@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, Optional
 from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Request, Response, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,7 +73,7 @@ router = APIRouter(prefix="/interview", tags=["interview"])
 
 
 async def _resolve_interview_metadata(code: str, db: AsyncSession) -> Optional[dict]:
-    """Helper to find interview config in memory store or database."""
+    """Helper to find interview config in memory store or database by UUID, access_code, or token."""
     clean_code = code.strip()
 
     # 1. Check in-memory store
@@ -107,14 +108,18 @@ async def _resolve_interview_metadata(code: str, db: AsyncSession) -> Optional[d
             "config": demo_config,
         }
 
-    # 3. Check database
+    # 3. Check database (supports UUID, access_code, or token)
     try:
         query = select(Interview).options(selectinload(Interview.role).selectinload(Role.company))
         try:
             target_uuid = uuid.UUID(clean_code)
             stmt = query.where(Interview.id == target_uuid)
         except ValueError:
-            stmt = query.where(Interview.token == clean_code)
+            stmt = query.where(
+                (Interview.access_code == clean_code.upper())
+                | (Interview.access_code == clean_code)
+                | (Interview.token == clean_code)
+            )
 
         res = await db.execute(stmt)
         interview_record = res.scalar_one_or_none()
@@ -136,6 +141,8 @@ async def _resolve_interview_metadata(code: str, db: AsyncSession) -> Optional[d
                     job_description=interview_record.role.description if interview_record.role else "",
                     questions=[{"id": f"q{i+1}", "text": q["text"], "maps_to": list(rubric.keys())} for i, q in enumerate(rubric_config.QUESTIONS)],
                     rubric_criteria=rubric,
+                    access_code=interview_record.access_code,
+                    candidate_email=interview_record.candidate_email,
                 )
                 interview_store.create_interview(cached_config)
 
@@ -143,7 +150,7 @@ async def _resolve_interview_metadata(code: str, db: AsyncSession) -> Optional[d
                 "id": record_id,
                 "role_title": role_title,
                 "company_name": company_name,
-                "duration_minutes": 30,
+                "duration_minutes": cached_config.duration_minutes if cached_config else 30,
                 "config": cached_config,
                 "db_record": interview_record,
             }
@@ -175,10 +182,14 @@ async def get_interview_details(code: str, db: AsyncSession = Depends(get_db)):
 @router.post("/join", response_model=JoinInterviewResponse)
 async def join_interview(
     req_data: JoinInterviewRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    """Verifies candidate credentials and issues candidate session token."""
+    """
+    Verifies candidate credentials, validates single-use access code and expiration,
+    records usage in DB, and issues candidate session token with 'seb': true and client IP.
+    """
     meta = await _resolve_interview_metadata(req_data.interview_code, db)
     if not meta:
         raise HTTPException(
@@ -186,13 +197,65 @@ async def join_interview(
             detail="Invalid interview code. Please verify the code or link provided by your recruiter.",
         )
 
-    interview_id = meta["id"]
-    token = create_interview_token(interview_id=interview_id, candidate_email=req_data.candidate_email)
+    db_record: Optional[Interview] = meta.get("db_record")
+    now_utc = datetime.now(timezone.utc)
 
-    # If linked to a DB record, update candidate details
-    if "db_record" in meta and meta["db_record"]:
+    # Validate single-use, expiration, and candidate email if DB record is present
+    if db_record:
+        # Check single-use
+        if db_record.access_code_used or db_record.status in ("completed", "length_limited"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This access code has already been used. Each interview link or code is single-use.",
+            )
+
+        # Check expiration (30 min after issue if unused)
+        if db_record.access_code_expires_at:
+            expires_at = db_record.access_code_expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if now_utc > expires_at:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This access code has expired. Access codes expire 30 minutes after issue if unused.",
+                )
+
+        # Check candidate email tie
+        if db_record.candidate_email and not db_record.candidate_email.endswith("@applicant.com"):
+            if db_record.candidate_email.strip().lower() != req_data.candidate_email.strip().lower():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"This access code was issued specifically for a different candidate email ({db_record.candidate_email}).",
+                )
+
+    interview_id = meta["id"]
+    duration_minutes = meta.get("duration_minutes", 30)
+
+    # Extract client IP
+    client_ip = request.headers.get("x-forwarded-for")
+    if client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    elif request.client:
+        client_ip = request.client.host
+    else:
+        client_ip = "127.0.0.1"
+
+    # Generate token with "seb": true, request IP, and duration + buffer
+    token = create_interview_token(
+        interview_id=interview_id,
+        candidate_email=req_data.candidate_email.strip(),
+        duration_minutes=duration_minutes,
+        buffer_minutes=15,
+        client_ip=client_ip,
+        seb=True,
+    )
+
+    # If linked to a DB record, update candidate details and mark access_code used
+    if db_record:
         try:
-            db_record = meta["db_record"]
+            db_record.access_code_used = True
+            db_record.access_code_used_at = now_utc
+            db_record.started_at = now_utc
             db_record.candidate_name = req_data.candidate_name.strip()
             db_record.candidate_email = req_data.candidate_email.strip()
             if db_record.status == "created":
@@ -201,13 +264,14 @@ async def join_interview(
         except Exception as e:
             logger.warning(f"Failed to update candidate DB info on join: {e}")
 
-    # Set candidate auth cookie for seamless browser calls
+    # Set candidate auth cookie for seamless browser calls with httponly=True
+    cookie_max_age = (duration_minutes + 15) * 60
     response.set_cookie(
         key="candidate_token",
         value=token,
-        httponly=False,
+        httponly=True,
         samesite="lax",
-        max_age=86400 * 3,
+        max_age=cookie_max_age,
         path="/",
     )
 
@@ -217,7 +281,7 @@ async def join_interview(
         token_type="bearer",
         role_title=meta["role_title"],
         company_name=meta["company_name"],
-        duration_minutes=meta["duration_minutes"],
+        duration_minutes=duration_minutes,
         candidate_name=req_data.candidate_name,
         candidate_email=req_data.candidate_email,
     )

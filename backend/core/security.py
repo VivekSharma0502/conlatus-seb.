@@ -1,12 +1,22 @@
+import secrets
+import string
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
-from passlib.context import CryptContext
 import jwt
 from fastapi import HTTPException, status
 
 from core.config import settings
-
 import bcrypt
+
+
+def generate_access_code(length: int = 10) -> str:
+    """
+    Generates a cryptographically secure, random access code using secrets (8+ chars, independent of UUID).
+    Uses uppercase alphanumeric characters, avoiding ambiguous glyphs like 0/O and 1/I.
+    """
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(max(length, 8)))
+
 
 def hash_password(password: str) -> str:
     """
@@ -26,7 +36,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return bcrypt.checkpw(pwd_bytes, hashed_password.encode("utf-8"))
     except Exception:
         return False
-
 
 
 def create_access_token(
@@ -106,15 +115,31 @@ def decode_token(token: str) -> Dict[str, Any]:
         )
 
 
-def create_interview_token(interview_id: str, candidate_email: str) -> str:
-    """Generates a single-use candidate interview session token."""
+def create_interview_token(
+    interview_id: str,
+    candidate_email: str,
+    duration_minutes: int = 30,
+    buffer_minutes: int = 15,
+    client_ip: Optional[str] = None,
+    seb: bool = True,
+) -> str:
+    """
+    Generates a single-use candidate interview session token.
+    Claims:
+      - 'seb': True
+      - 'ip': request IP
+      - Shortened expiry: interview duration + buffer minutes
+    """
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(days=3)  # Candidate links valid for 3 days by default
+    total_minutes = max(int(duration_minutes), 5) + max(int(buffer_minutes), 0)
+    expire = now + timedelta(minutes=total_minutes)
 
     to_encode = {
         "sub": str(interview_id),
         "email": candidate_email,
         "type": "interview_session",
+        "seb": seb,
+        "ip": client_ip or "unknown",
         "exp": expire,
         "iat": now,
     }

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import ForeignKey, String, DateTime, UUID
+from sqlalchemy import Boolean, ForeignKey, String, DateTime, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base, TimestampMixin, UUIDMixin
@@ -36,6 +36,12 @@ class Interview(Base, UUIDMixin, TimestampMixin):
     token: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="created", nullable=False)  # created, in_progress, completed, expired
 
+    # Independent, cryptographically random single-use access code (expires in 30 min if unused)
+    access_code: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    access_code_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    access_code_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    access_code_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -59,4 +65,4 @@ class Interview(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<Interview id={self.id} candidate='{self.candidate_name}' status='{self.status}'>"
+        return f"<Interview id={self.id} candidate='{self.candidate_name}' status='{self.status}' access_code='{self.access_code}'>"

@@ -72,6 +72,8 @@ class InterviewConfig(BaseModel):
     rubric_criteria: Dict[str, dict]
     verdict_threshold: float = 3.0
     max_followups: int = 2
+    access_code: Optional[str] = None
+    candidate_email: Optional[str] = None
 
 
 class CreateInterviewRequest(BaseModel):
@@ -82,10 +84,13 @@ class CreateInterviewRequest(BaseModel):
     rubric_tags: List[str]
     custom_questions: List[str]
     generated_questions: Optional[List[Dict]] = None
+    candidate_email: Optional[str] = None
+    candidate_name: Optional[str] = None
 
 
 class CreateInterviewResponse(BaseModel):
     interview_id: str
+    access_code: Optional[str] = None
 
 
 class InterviewDetailsResponse(BaseModel):
@@ -111,4 +116,3 @@ class JoinInterviewResponse(BaseModel):
     duration_minutes: int
     candidate_name: str
     candidate_email: str
-
