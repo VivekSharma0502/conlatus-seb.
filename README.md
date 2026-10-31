@@ -48,19 +48,28 @@ GROQ_API_KEY=gsk_your_groq_api_key_here
 
 ### 2. Start the Backend (FastAPI on Port 8000)
 
-From the repository root:
+> **Always start the backend from the `backend/` directory:**
+
 ```bash
-npm run backend
+cd backend
+python -m uvicorn main:app --port 8000 --reload
 ```
-*Or directly with Python:*
-```bash
-python backend/main.py
-```
-*(Or with pnpm: `pnpm backend`)*
+
+> **Note:** `config.py` resolves `backend/.env` using an absolute path (relative to `__file__`), so it is CWD-independent. However running from `backend/` remains the canonical approach.
 
 - **API Health Check:** [http://localhost:8000/](http://localhost:8000/)
 - **Interactive OpenAPI Documentation:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Developer Testing Dashboard:** [http://localhost:8000/dev/dashboard](http://localhost:8000/dev/dashboard)
+
+#### Environment Variables (`backend/.env`)
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `GROQ_API_KEY` | str | — | **Required.** Groq API key from [console.groq.com](https://console.groq.com) |
+| `DATABASE_URL` | str | `sqlite+aiosqlite:///conlatus.db` | SQLAlchemy async DB URL |
+| `JWT_SECRET_KEY` | str | (insecure default) | Change in production |
+| `DEV_SKIP_SEB` | bool | `false` | Set `true` in dev to bypass Safe Exam Browser enforcement. A loud WARNING is logged on startup when enabled. |
+| `SEB_CONFIG_KEY` | str | `""` | Comma-separated SEB config key hashes. Required when `DEV_SKIP_SEB=false`. |
 
 ---
 
